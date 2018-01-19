@@ -6,7 +6,7 @@
     <description>Recent content in Posts on Charix&#39; Infosec Blog</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Fri, 19 Jan 2018 06:04:21 +0100</lastBuildDate>
+    <lastBuildDate>Fri, 19 Jan 2018 06:56:11 +0100</lastBuildDate>
     
 	<atom:link href="/post/index.xml" rel="self" type="application/rss+xml" />
     
@@ -14,7 +14,7 @@
     <item>
       <title>About</title>
       <link>/post/about/</link>
-      <pubDate>Fri, 19 Jan 2018 06:04:21 +0100</pubDate>
+      <pubDate>Fri, 19 Jan 2018 06:56:11 +0100</pubDate>
       
       <guid>/post/about/</guid>
       <description>I hope to use this blog as a means of sharing and learning all things infosec.
