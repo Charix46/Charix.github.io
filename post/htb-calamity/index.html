@@ -207,7 +207,7 @@ flushit();
 
 <h1 id="ropping-our-way-to-victory">Ropping our way to victory</h1>
 
-<p>The idea behind ROP is to use snippets of code of code already present in the binary or loaded modules. These snippets of code are referred to as <em>gadgets</em>. The trick and the reason the technique is called <strong>Return</strong>-Oriented Programming is that each of the gadgets will end in a <em>ret</em> instruction. This allows us to chain gadgets together to form valid calls to functions with the correct parameters. Often functions such as system() or execl() from the libc library can be used to spawn a shell if called with the right parameters.</p>
+<p>The idea behind ROP is to use snippets of code already present in the binary or loaded modules. These snippets of code are referred to as <em>gadgets</em>. The trick and the reason the technique is called <strong>Return</strong>-Oriented Programming is that each of the gadgets will end in a <em>ret</em> instruction. This allows us to chain gadgets together to form valid calls to functions with the correct parameters. Often functions such as system() or execl() from the libc library can be used to spawn a shell if called with the right parameters.</p>
 
 <p>This blogpost won&rsquo;t go into great detail on ROP, but I can recommend the website <a href="https://ropemporium.com/">RopEmporium</a> if you are interested in learning more.</p>
 
